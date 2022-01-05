@@ -1,0 +1,111 @@
+plugins {
+    id 'java'
+    id 'io.qameta.allure' version '2.8.1'
+}
+group 'net.my.test'
+version '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-xml', version: '2.11.2'
+    implementation group: 'org.apache.logging.log4j', name: 'log4j-slf4j18-impl', version: '2.16.0'
+    implementation group: 'io.qameta.allure', name: 'allure-cucumber4-jvm', version: '2.12.1'
+    implementation group: 'io.qameta.allure', name: 'allure-rest-assured', version: '2.13.6'
+    implementation group: 'io.qameta.allure', name: 'allure-selenide', version: '2.12.1'
+    implementation group: 'org.apache.commons', name: 'commons-lang3', version: '3.11'
+    implementation group: 'io.rest-assured', name: 'rest-assured', version: '4.3.1'
+    implementation group: 'io.cucumber', name: 'cucumber-junit', version: '4.8.1'
+    implementation group: 'io.cucumber', name: 'cucumber-java', version: '4.8.1'
+    implementation group: 'org.jetbrains', name: 'annotations', version: '19.0.0'
+    implementation group: 'org.assertj', name: 'assertj-core', version: '3.18.1'
+    implementation group: 'com.codeborne', name: 'selenide', version: '5.18.1'
+    implementation group: 'com.opencsv', name: 'opencsv', version: '5.3'
+    implementation group: 'org.json', name: 'json', version: '20200518'
+    implementation group: 'junit', name: 'junit', version: '4.12'
+}
+
+configurations {
+    cucumberRuntime {
+        extendsFrom testImplementation
+    }
+}
+
+wrapper {
+    gradleVersion = '5.6'
+    distributionUrl = distributionUrl.replace("bin", "all")
+}
+
+task copyEnviromentProperties {
+    doLast {
+        def directory = new File("${rootProject.rootDir}/build/allure-results")
+        if (!directory.exists()) {
+            mkdir "${rootProject.rootDir}/build/allure-results"
+        }
+
+        copy {
+            from file("${rootProject.rootDir}/src/test/resources/environment.properties")
+            into file("${rootProject.rootDir}/build/allure-results")
+        }
+
+        def props = new Properties()
+        File envProps = file(
+                "${rootProject.rootDir}/build/allure-results/environment.properties")
+        props.load(envProps.newDataInputStream())
+        props.setProperty("env.host", base_url)
+        props.store(envProps.newWriter(), null)
+        envProps.with { it.text = it.readLines().findAll { it }.sort().join('\n') }
+    }
+}
+
+task runCucumberTests() {
+    dependsOn assemble, testClasses, copyEnviromentProperties
+    doLast {
+        javaexec {
+            systemProperty("allure.results.directory", "build/allure-results")
+            main = "io.cucumber.core.cli.Main"
+            classpath = configurations.cucumberRuntime + sourceSets.main.output + sourceSets.test.output
+            args =
+                    [
+                            '--plugin', 'pretty', '--plugin', 'rerun:build/failed_scenarious.txt',
+                            '--plugin', 'io.qameta.allure.cucumber4jvm.AllureCucumber4Jvm',
+                            '--plugin', 'com.epam.reportportal.cucumber.ScenarioReporter',
+                            '--glue', 'tests', 'src/test/resources/features/'
+                    ]
+            jvmArgs = ['-Dbase_url=' + base_url]
+
+        }
+    }
+    finalizedBy 'allureReport'
+}
+
+task reExecuteCucumberTests() {
+    dependsOn assemble, testClasses
+    doLast {
+        3.times {
+            javaexec {
+                systemProperty("allure.results.directory", "build/allure-results")
+                main = "io.cucumber.core.cli.Main"
+                classpath = configurations.cucumberRuntime + sourceSets.main.output + sourceSets.test.output
+                args =
+                        [
+                                '--plugin', 'io.qameta.allure.cucumber4jvm.AllureCucumber4Jvm', '--plugin', 'pretty',
+                                '--plugin', 'rerun:build/failed_scenarious.txt',
+                                '--glue', 'tests',
+                                '@build/failed_scenarious.txt'
+                        ]
+                jvmArgs = ['-Dbase_url=' + base_url]
+            }
+        }
+    }
+    finalizedBy 'allureReport'
+}
+
+allure {
+    version = '2.8.1'
+    autoconfigure = false
+    aspectjweaver = true
+    reportDir = file("${rootProject.rootDir}/build/allure-report")
+}
